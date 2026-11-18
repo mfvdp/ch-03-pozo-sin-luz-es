@@ -17,7 +17,9 @@ namespace NocheSonido {
     const momentosSonidosMs = [700, 5300, 7200, 10800, 15500, 19000, 21300, 23400, 25600, 26950, 28500, 34600]
     const numerosSonidos = [15, 3, 16, 17, 19, 13, 30, 22, 23, 29, 24, 18]
     let numeroMusica = 0
+    // En la memoria solo se guarda la siguiente parte de la música.
     let vocesMusica: Buffer[] = []
+    let partePreparada = -1
     // 180 pulsos por minuto: 36 corcheas por cada parte de seis segundos. El ritmo de las imágenes, en
     // cambio, no cambia.
     const corcheaMs = 1000 / 6
@@ -146,13 +148,16 @@ namespace NocheSonido {
         }
         return datos
     }
-    function componer() {
+    // Construye las cinco voces de UNA parte en vocesMusica (unos 5 KB). Toda la música de una vez ocupaba unos 55 KB,
+    // más de lo que el Calliope mini 3 tiene libre junto a la pantalla y la mina (la pantalla se quedaba negra).
+    function componer(parte: number) {
         vocesMusica=[]
+        partePreparada=parte
         // Tonalidad de re mayor. Fundamentales de los acordes, parte por parte: re re sol la re si sol la re la re.
         const fundamentales=[147,147,196,220,147,247,196,220,147,220,147]
         const terceras=[185,185,247,277,185,294,247,277,185,277,185]
         const quintas=[220,220,294,330,220,370,294,330,220,330,220]
-        for(let parte=0;parte<momentosMusicaMs.length;parte++) {
+        if(parte>=0 && parte<momentosMusicaMs.length) {
             let fundamental=fundamentales[parte], tercera=terceras[parte], quinta=quintas[parte]
             let numeroCorcheas=Math.round(duracionesMusicaMs[parte]/corcheaMs)
             let bajo: number[]=[], duracionesBajo: number[]=[], arpegio: number[]=[], tics: number[]=[]
@@ -276,7 +281,7 @@ namespace NocheSonido {
         acordeGrave=construirAcordeEstudio(370,440,587,400)
         acordeAgudo=construirAcordeEstudio(440,587,740,340)
         ocupadoHastaMs = 0; prioridad = 0; estadoAnterior = -1; edadAnteriorMs = -1
-        numeroSonidoIntro = 0; numeroMusica = 0; silenciado = false; vocesMusica=[]
+        numeroSonidoIntro = 0; numeroMusica = 0; silenciado = false; vocesMusica=[]; partePreparada=-1
         proximoAmbienteMs=0; proximoZumbidoMs=0; numeroAmbiente=0
         // Un zumbido suave, gotas agudas, aire ligero, un segundo patrón de gotas; nada por debajo de 100 Hz.
         ambientes = [construirEnvolvente(3,220,220,80,900,2600),
@@ -289,7 +294,7 @@ namespace NocheSonido {
         pisadaMetal=construirEnvolvente(18,1200,220,155,12,130)
         pisadaAguaCorriendo=construirEnvolvente(18,980,140,190,18,190)
         pisadaMetalCorriendo=construirEnvolvente(18,1400,180,220,12,160)
-        componer()
+        // La música se construye parte por parte mientras suena la intro.
     }
 
     function parar() {
@@ -322,6 +327,7 @@ namespace NocheSonido {
             parar()
             numeroSonidoIntro = 0
             numeroMusica = 0
+            vocesMusica = []; partePreparada = -1
             proximoAmbienteMs=ahoraMs+1200
             proximoZumbidoMs=ahoraMs+600
         }
@@ -339,9 +345,15 @@ namespace NocheSonido {
             while(numeroMusica<momentosMusicaMs.length && Noche.edadMs>=momentosMusicaMs[numeroMusica]) {
                 let numeroParte=numeroMusica++
                 if(Noche.edadMs-momentosMusicaMs[numeroParte]<150) {
-                    for(let voz=0;voz<5;voz++) music.playInstructions(0,vocesMusica[numeroParte*5+voz])
+                    if(partePreparada!=numeroParte) componer(numeroParte)
+                    // El mezclador guarda cada búfer mientras suena; vocesMusica ya puede pasar a la parte siguiente.
+                    for(let voz=0;voz<5;voz++) music.playInstructions(0,vocesMusica[voz])
+                    vocesMusica=[]; partePreparada=-1
                 }
             }
+            // Preparar la parte siguiente justo después de la entrada anterior, unos segundos antes de su hora; así su
+            // entrada solo inicia el sonido.
+            if(numeroMusica<momentosMusicaMs.length && partePreparada!=numeroMusica) componer(numeroMusica)
             // Si el tiempo salta, se tiran los sonidos antiguos en vez de volver a tocarlos todos de golpe.
             while (numeroSonidoIntro < momentosSonidosMs.length
                 && Noche.edadMs >= Noche.tiempoRealIntroMs(momentosSonidosMs[numeroSonidoIntro])) {
